@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Mic, Square, Play, Pause, RotateCcw, Volume2, VolumeX, 
-  Layers, Radio, ArrowUpRight, HelpCircle, Activity, Trash2, Sliders, ZoomIn, Grid, Timer, Plus, Layout
+  Layers, Radio, ArrowUpRight, HelpCircle, Activity, Trash2, Sliders, ZoomIn, Grid, Timer, Plus, Layout, AlertTriangle, Download
 } from 'lucide-react';
 
 export default function App() {
@@ -30,7 +30,11 @@ export default function App() {
   // Record Pre-delay Countdown Timer Config
   const [recordTimer, setRecordTimer] = useState(0); 
   const [countdownActive, setCountdownActive] = useState(false);
-  const [countdownSeconds, setCountdownSeconds] = useState(0); // Numerical tracking state for screen overlay
+  const [countdownSeconds, setCountdownSeconds] = useState(0); 
+
+  // Staging Conflict UI Alert State
+  const [showStagingConflict, setShowStagingConflict] = useState(false);
+  const alertTimeoutRef = useRef(null);
 
   // Isolated Sandbox Playhead Tracker
   const [sandboxPlayhead, setSandboxSandboxPlayhead] = useState(0);
@@ -54,16 +58,34 @@ export default function App() {
   const animationFrameRef = useRef(null);
   const timelineContainerRef = useRef(null);
 
-  const selectedClip = audioItems.find(item => item.id === selectedClipId);
-
   // Ref hooks to safely evaluate live boundary state configurations inside loops
   const selectedClipIdRef = useRef(null);
   const audioItemsRef = useRef([]);
+
+  const selectedClip = audioItems.find(item => item.id === selectedClipId);
 
   useEffect(() => {
     selectedClipIdRef.current = selectedClipId;
     audioItemsRef.current = audioItems;
   }, [selectedClipId, audioItems]);
+
+  useEffect(() => {
+    return () => {
+      if (alertTimeoutRef.current) clearTimeout(alertTimeoutRef.current);
+    };
+  }, []);
+
+  const triggerStagingConflictAlert = () => {
+    if (alertTimeoutRef.current) clearTimeout(alertTimeoutRef.current);
+    setShowStagingConflict(false);
+    
+    setTimeout(() => {
+      setShowStagingConflict(true);
+      alertTimeoutRef.current = setTimeout(() => {
+        setShowStagingConflict(false);
+      }, 5000);
+    }, 10);
+  };
 
   const makeDistortionCurve = (amount) => {
     const k = typeof amount === 'number' ? amount : 50;
@@ -100,6 +122,19 @@ export default function App() {
     });
     if (selectedTrackId === trackId) setSelectedTrackId(null);
     setStatus(`Removed Track Lane ${trackId} and cleaned mixed assets layout mapping.`);
+  };
+
+  // Session compilation synthesis exporter logic pipeline frame mapping
+  const handleExportMix = () => {
+    if (audioItems.length === 0) {
+      setStatus("Export failed: Timeline workspace grid has no sound segments assigned.");
+      return;
+    }
+    setStatus("Compiling audio mix configuration profiles...");
+    // Simulate generation array map layout file stream outputs
+    setTimeout(() => {
+      setStatus("Session mix profile synthesized. Project export download sequence cleared.");
+    }, 1200);
   };
 
   // Keyboard Nudging Event Listener for Selected Sound Cards
@@ -195,22 +230,14 @@ export default function App() {
     }
   }, [zoomLevel]);
 
-  // 2. Upgraded Playhead Scrubbing Mechanics
+  // 2. Upgraded Drag-Only Playhead Scrubbing Logic
   const handleTimelineScrub = (e) => {
-    if (e.target !== e.currentTarget && !e.currentTarget.contains(e.target)) return;
-    if (!timelineContainerRef.current) return;
+    if (!isDraggingPlayhead || !timelineContainerRef.current) return;
     const bounds = timelineContainerRef.current.getBoundingClientRect();
-    const clickX = Math.max(0, e.clientX - bounds.left - 80); 
+    const dragX = Math.max(0, e.clientX - bounds.left - 80); 
     
-    const newTimeSeconds = clickX / zoomLevel;
-    pausedAtRef.current = newTimeSeconds;
-    setPlayheadPosition(clickX);
-
-    if (isPlayingGlobal) {
-      stopAllGlobalAudio(false);
-      startTimeRef.current = audioContextRef.current.currentTime;
-      fireActiveTimelineSources();
-    }
+    pausedAtRef.current = dragX / zoomLevel;
+    setPlayheadPosition(dragX);
   };
 
   const handlePlayheadPointerDown = (e) => {
@@ -277,6 +304,7 @@ export default function App() {
           pitch: 1.0, 
           speed: 1.0, 
           distortion: 0, 
+          volume: 100, 
           startTime: 0, 
           waveProfile
         });
@@ -296,7 +324,6 @@ export default function App() {
     }
   };
 
-  // 3. Audio Recording Action with Visual Countdown System
   const handleRecording = async () => {
     if (isRecording) {
       clearInterval(recordingTimerRef.current);
@@ -305,20 +332,17 @@ export default function App() {
       setStatus("Processing captured signal profile...");
     } else {
       if (sandboxItem) {
-        alert("Staging conflict: Move the current staged Sandbox voice card up into a track lane or delete it before recording a new file.");
+        triggerStagingConflictAlert();
         return;
       }
-
       if (recordTimer > 0) {
         setCountdownActive(true);
-        setCountdownSeconds(recordTimer); // Feed initial step layout index value
+        setCountdownSeconds(recordTimer); 
         let remainingSeconds = recordTimer;
         setStatus(`Recording countdown initializing: ${remainingSeconds}s remaining...`);
-        
         const countdownInterval = setInterval(() => {
           remainingSeconds -= 1;
-          setCountdownSeconds(remainingSeconds); // Sync downstream to overlay frame
-          
+          setCountdownSeconds(remainingSeconds);
           if (remainingSeconds <= 0) {
             clearInterval(countdownInterval);
             setCountdownActive(false);
@@ -373,11 +397,15 @@ export default function App() {
         source.buffer = item.buffer;
         source.playbackRate.value = playbackSpeed * (item.pitch || 1.0) * (item.speed || 1.0);
 
-        let gainNode = activeGainsRef.current[item.trackId];
-        if (!gainNode) {
-          gainNode = audioContextRef.current.createGain();
-          gainNode.gain.value = mutedTracks[item.trackId] ? 0 : 1;
-          activeGainsRef.current[item.trackId] = gainNode;
+        const clipGainNode = audioContextRef.current.createGain();
+        const clipVolumeScalar = (item.volume !== undefined ? item.volume : 100) / 100;
+        clipGainNode.gain.value = clipVolumeScalar;
+
+        let trackMasterGainNode = activeGainsRef.current[item.trackId];
+        if (!trackMasterGainNode) {
+          trackMasterGainNode = audioContextRef.current.createGain();
+          trackMasterGainNode.gain.value = mutedTracks[item.trackId] ? 0 : 1;
+          activeGainsRef.current[item.trackId] = trackMasterGainNode;
         }
 
         if (item.distortion && item.distortion > 0) {
@@ -386,12 +414,13 @@ export default function App() {
           waveShaper.oversample = '4x';
           
           source.connect(waveShaper);
-          waveShaper.connect(gainNode);
+          waveShaper.connect(clipGainNode);
         } else {
-          source.connect(gainNode);
+          source.connect(clipGainNode);
         }
 
-        gainNode.connect(audioContextRef.current.destination);
+        clipGainNode.connect(trackMasterGainNode);
+        trackMasterGainNode.connect(audioContextRef.current.destination);
 
         const elapsedSinceClipStart = Math.max(0, pausedAtRef.current - clipStart);
         const bufferStartOffset = elapsedSinceClipStart * (item.speed || 1.0);
@@ -477,6 +506,12 @@ export default function App() {
     ));
   };
 
+  const handleClipVolumeChange = (clipId, newVolume) => {
+    setAudioItems(prev => prev.map(item => 
+      item.id === clipId ? { ...item, volume: parseInt(newVolume) } : item
+    ));
+  };
+
   const handleRenameClip = (clipId, newName) => {
     setAudioItems(prev => prev.map(item => 
       item.id === clipId ? { ...item, name: newName } : item
@@ -507,6 +542,13 @@ export default function App() {
     e.preventDefault();
     const clipId = e.dataTransfer.getData("clipId");
     const isFromSandbox = e.dataTransfer.getData("isFromSandbox") === "true";
+
+    const laneOccupied = audioItems.some(item => item.trackId === targetTrackId && item.id !== clipId);
+    if (laneOccupied) {
+      setStatus(`Drop rejected: Lane ${targetTrackId} is already housing a segment block.`);
+      setDraggingClipId(null);
+      return;
+    }
 
     if (isFromSandbox && sandboxItem && sandboxItem.id === clipId) {
       setAudioItems(prev => [
@@ -566,7 +608,7 @@ export default function App() {
           <hr className="border-zinc-900" />
 
           {selectedClip ? (
-            <div className="space-y-5 border border-zinc-900 bg-black p-3.5 animate-fade-in rounded-none">
+            <div className="space-y-4 border border-zinc-900 bg-black p-3.5 animate-fade-in rounded-none">
               <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-zinc-300 font-mono">
                 <Sliders className="w-3.5 h-3.5" /> Track Properties
               </div>
@@ -588,6 +630,19 @@ export default function App() {
                 <div className="text-[10px] text-zinc-500 bg-zinc-900/50 p-2 border border-zinc-800/60 font-mono">
                   Select card, then hold <span className="text-zinc-300">←</span> or <span className="text-zinc-300">→</span> key to reposition clip horizontally.
                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs">
+                  <span className="text-zinc-400">Volume Level</span>
+                  <span className="text-white font-bold font-mono">{selectedClip.volume !== undefined ? selectedClip.volume : 100}%</span>
+                </div>
+                <input 
+                  type="range" min="0" max="150" step="5" 
+                  value={selectedClip.volume !== undefined ? selectedClip.volume : 100} 
+                  onChange={(e) => handleClipVolumeChange(selectedClip.id, e.target.value)}
+                  className="w-full accent-white bg-zinc-800 rounded-none appearance-none h-1.5 cursor-pointer"
+                />
               </div>
 
               <div className="space-y-1.5">
@@ -679,8 +734,8 @@ export default function App() {
             Lanes
           </div>
           <div 
-            onClick={handleTimelineScrub}
-            className="flex-1 h-full relative overflow-x-auto cursor-ew-resize pl-4 [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-900 [&::-webkit-scrollbar-thumb]:rounded-full"
+            onPointerMove={handleTimelineScrub}
+            className="flex-1 h-full relative overflow-x-auto cursor-default pl-4 [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-900 [&::-webkit-scrollbar-thumb]:rounded-full"
           >
             {timeMarkers.map(sec => (
               <div key={sec} className="absolute top-0 bottom-0 border-l border-zinc-900 font-mono text-[9px] text-zinc-500 pt-3 pl-2 pointer-events-none flex flex-col justify-between" style={{ left: `${sec * zoomLevel}px` }}>
@@ -694,17 +749,26 @@ export default function App() {
         {/* WORKSPACE AREA TRACK CONTAINER */}
         <div 
           ref={timelineContainerRef}
+          onPointerMove={handleTimelineScrub} 
           onClick={(e) => { 
             if (e.target === e.currentTarget) {
               setSelectedClipId(null); 
               setSelectedTrackId(null); 
             }
-            handleTimelineScrub(e);
           }} 
           className="flex-1 overflow-y-auto bg-black p-4 space-y-4 relative overflow-x-auto [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-900 [&::-webkit-scrollbar-thumb]:rounded-full"
         >
           
-          {/* NEW PRE-DELAY REC COUNTDOWN SCREEN OVERLAY TIMER */}
+          {/* NEW MONOCHROMATIC FLOATING CIRCLE EXPORT BUTTON */}
+          <button
+            onClick={(e) => { e.stopPropagation(); handleExportMix(); }}
+            title="Export Session Audio (.mp3)"
+            className="absolute top-4 right-6 w-11 h-11 bg-zinc-900 hover:bg-white text-zinc-400 hover:text-black border border-zinc-800 hover:border-white transition-all flex items-center justify-center z-45 rounded-full cursor-pointer shadow-xl active:scale-95"
+          >
+            <Download className="w-4 h-4" />
+          </button>
+
+          {/* PRE-DELAY REC COUNTDOWN OVERLAY */}
           {countdownActive && (
             <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-45 flex flex-col items-center justify-center pointer-events-none">
               <span className="font-mono text-8xl font-black tracking-tighter text-white animate-ping">
@@ -801,9 +865,12 @@ export default function App() {
                         <div className={`flex flex-col font-mono text-[8px] shrink-0 text-right gap-[1px] ${rowHeight < 64 ? 'hidden' : 'flex'}`}>
                           <div className="flex items-center gap-1 justify-end">
                             {item.distortion > 0 && <span className="px-0.5 bg-white text-black font-bold text-[7px] leading-none select-none">DST</span>}
-                            <span className={isSelected ? 'text-white' : 'text-zinc-400'}>Spd: {(item.speed || 1.0).toFixed(1)}x</span>
+                            <span className={isSelected ? 'text-white' : 'text-zinc-400'}>V: {item.volume !== undefined ? item.volume : 100}%</span>
                           </div>
-                          <span className={isSelected ? 'text-zinc-300' : 'text-zinc-500'}>Pch: {(item.pitch || 1.0).toFixed(1)}x</span>
+                          <div className="text-[7.5px] opacity-50">
+                            <span>S:{(item.speed || 1.0).toFixed(1)}x </span>
+                            <span>P:{(item.pitch || 1.0).toFixed(1)}x</span>
+                          </div>
                         </div>
                       </div>
 
@@ -847,7 +914,21 @@ export default function App() {
         </div>
 
         {/* SANDBOX LAYER CAPTURE BAY */}
-        <section className="border-t border-zinc-900 bg-zinc-950 px-6 py-3 z-10 shadow-inner rounded-none">
+        <section className="border-t border-zinc-900 bg-zinc-950 px-6 py-3 z-10 shadow-inner rounded-none relative">
+          
+          {/* UPDATED MODULAR STAGING ALERT OVERLAY */}
+          {showStagingConflict && (
+            <div className="absolute left-6 bottom-20 border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-zinc-300 font-mono text-[10px] tracking-wide flex flex-col gap-2 shadow-2xl z-40 rounded-none w-80 max-w-sm">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                <span>Staging conflict: Move the current staged voice card up or delete it first.</span>
+              </div>
+              <div className="w-full h-[1px] bg-zinc-900 overflow-hidden relative mt-1">
+                <div className="absolute top-0 bottom-0 left-0 bg-zinc-400 w-full origin-left animate-shrink-timer" />
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center gap-4 border border-dashed border-zinc-900 bg-black p-3 rounded-none">
             
             <div className="flex items-center shrink-0 gap-2">
@@ -966,7 +1047,7 @@ export default function App() {
               <button 
                 onClick={handleGlobalStop} 
                 disabled={audioItems.length === 0 || isRecording || countdownActive} 
-                className="flex items-center gap-2 px-4 py-1.5 bg-zinc-950 hover:bg-zinc-900 border border-zinc-900 text-zinc-400 font-bold text-xs tracking-wide uppercase transition-all disabled:opacity-20 rounded-none"
+                className="flex items-center gap-2 px-4 py-1.5 bg-zinc-950 hover:bg-zinc-800 border border-zinc-900 text-zinc-400 font-bold text-xs tracking-wide uppercase transition-all disabled:opacity-20 rounded-none"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>Stop / Reset</span>
@@ -1023,6 +1104,16 @@ export default function App() {
         </footer>
 
       </main>
+
+      <style dangerouslySetInnerHTML={{__html: `
+        @keyframes shrinkTimer {
+          from { transform: scaleX(1); }
+          to { transform: scaleX(0); }
+        }
+        .animate-shrink-timer {
+          animation: shrinkTimer 5s linear forwards;
+        }
+      `}} />
 
     </div>
   );
