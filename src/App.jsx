@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Mic, Square, Play, Pause, RotateCcw, Volume2, VolumeX, 
-  Layers, Radio, ArrowUpRight, HelpCircle, Activity, Trash2, Sliders, ZoomIn, Grid, Timer, Plus, Layout, AlertTriangle, Download
+  Activity, Trash2, Sliders, ZoomIn, Timer, Plus, Layout, AlertTriangle, Download, Move, ArrowUpRight, Eye
 } from 'lucide-react';
 
 export default function App() {
@@ -27,8 +27,9 @@ export default function App() {
   const [playheadPosition, setPlayheadPosition] = useState(0);
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
 
-  // Record Pre-delay Countdown Timer Config
+  // Record Pre-delay Countdown Timer & Guide Playhead Configuration
   const [recordTimer, setRecordTimer] = useState(0); 
+  const [isGuideModeActive, setIsGuideModeActive] = useState(true);
   const [countdownActive, setCountdownActive] = useState(false);
   const [countdownSeconds, setCountdownSeconds] = useState(0); 
 
@@ -45,6 +46,9 @@ export default function App() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingTimerRef = useRef(null);
 
+  // Real-time Live Volume Profile Array for Recording Animation
+  const [liveWaveProfile, setLiveWaveProfile] = useState([]);
+
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const audioContextRef = useRef(null);
@@ -58,16 +62,19 @@ export default function App() {
   const animationFrameRef = useRef(null);
   const timelineContainerRef = useRef(null);
 
-  // Ref hooks to safely evaluate live boundary state configurations inside loops
+  // Live tracking references to bypass React state pipeline re-render latency inside audio nodes
+  const liveProfileRef = useRef([]);
   const selectedClipIdRef = useRef(null);
   const audioItemsRef = useRef([]);
+  const isGuideModeRef = useRef(true);
 
   const selectedClip = audioItems.find(item => item.id === selectedClipId);
 
   useEffect(() => {
     selectedClipIdRef.current = selectedClipId;
     audioItemsRef.current = audioItems;
-  }, [selectedClipId, audioItems]);
+    isGuideModeRef.current = isGuideModeActive;
+  }, [selectedClipId, audioItems, isGuideModeActive]);
 
   useEffect(() => {
     return () => {
@@ -124,14 +131,12 @@ export default function App() {
     setStatus(`Removed Track Lane ${trackId} and cleaned mixed assets layout mapping.`);
   };
 
-  // Session compilation synthesis exporter logic pipeline frame mapping
   const handleExportMix = () => {
     if (audioItems.length === 0) {
       setStatus("Export failed: Timeline workspace grid has no sound segments assigned.");
       return;
     }
     setStatus("Compiling audio mix configuration profiles...");
-    // Simulate generation array map layout file stream outputs
     setTimeout(() => {
       setStatus("Session mix profile synthesized. Project export download sequence cleared.");
     }, 1200);
@@ -161,9 +166,18 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedClipId]);
 
-  // 1. Playhead Loop Engine with Selected Card Boundary Guard
+  // Playhead Loop Engine with Selected Card Boundary Guard
   const updatePlayhead = () => {
-    if (!audioContextRef.current || !isPlayingGlobal) return;
+    if (!audioContextRef.current || (!isPlayingGlobal && !mediaRecorderRef.current)) return;
+
+    // Direct binding map to lock tracking positions to mic clock increments only when guide mode is enabled
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      if (isGuideModeRef.current) {
+        setPlayheadPosition(pausedAtRef.current * zoomLevel);
+      }
+      animationFrameRef.current = requestAnimationFrame(updatePlayhead);
+      return;
+    }
 
     const elapsedSeconds = audioContextRef.current.currentTime - startTimeRef.current;
     const currentTimelineSeconds = pausedAtRef.current + (elapsedSeconds * playbackSpeed);
@@ -190,13 +204,13 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (isPlayingGlobal) {
+    if (isPlayingGlobal || isRecording) {
       animationFrameRef.current = requestAnimationFrame(updatePlayhead);
     } else {
       cancelAnimationFrame(animationFrameRef.current);
     }
     return () => cancelAnimationFrame(animationFrameRef.current);
-  }, [isPlayingGlobal, playbackSpeed, zoomLevel]);
+  }, [isPlayingGlobal, isRecording, playbackSpeed, zoomLevel]);
 
   // Dynamic sandbox engine update
   const updateSandboxPlayhead = () => {
@@ -225,14 +239,14 @@ export default function App() {
 
   // Sync playhead back to match current zoom mutations
   useEffect(() => {
-    if (!isPlayingGlobal) {
+    if (!isPlayingGlobal && !isRecording) {
       setPlayheadPosition(pausedAtRef.current * zoomLevel);
     }
   }, [zoomLevel]);
 
-  // 2. Upgraded Drag-Only Playhead Scrubbing Logic
+  // Upgraded Drag-Only Playhead Scrubbing Logic
   const handleTimelineScrub = (e) => {
-    if (!isDraggingPlayhead || !timelineContainerRef.current) return;
+    if (!isDraggingPlayhead || !timelineContainerRef.current || isRecording) return;
     const bounds = timelineContainerRef.current.getBoundingClientRect();
     const dragX = Math.max(0, e.clientX - bounds.left - 80); 
     
@@ -241,13 +255,14 @@ export default function App() {
   };
 
   const handlePlayheadPointerDown = (e) => {
+    if (isRecording) return; 
     e.stopPropagation();
     setIsDraggingPlayhead(true);
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const handlePlayheadPointerMove = (e) => {
-    if (!isDraggingPlayhead || !timelineContainerRef.current) return;
+    if (!isDraggingPlayhead || !timelineContainerRef.current || isRecording) return;
     const bounds = timelineContainerRef.current.getBoundingClientRect();
     const dragX = Math.max(0, e.clientX - bounds.left - 80); 
     
@@ -256,6 +271,7 @@ export default function App() {
   };
 
   const handlePlayheadPointerUp = (e) => {
+    if (isRecording) return;
     setIsDraggingPlayhead(false);
     e.currentTarget.releasePointerCapture(e.pointerId);
     if (isPlayingGlobal) {
@@ -279,23 +295,62 @@ export default function App() {
     setIsPlayingSandbox(false);
     setSandboxItem(null);
     setRecordingSeconds(0);
+    setLiveWaveProfile([]);
+    liveProfileRef.current = [];
     audioChunksRef.current = [];
+
+    // Reset playhead zero point allocations context mapping strictly inside guide sequence limits
+    if (isGuideModeActive) {
+      pausedAtRef.current = 0;
+      setPlayheadPosition(0);
+    }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      
+      const sourceNode = audioContextRef.current.createMediaStreamSource(stream);
+      const processorNode = audioContextRef.current.createScriptProcessor(2048, 1, 1);
+      
+      processorNode.onaudioprocess = (audioProcessingEvent) => {
+        const inputBuffer = audioProcessingEvent.inputBuffer;
+        const inputData = inputBuffer.getChannelData(0);
+        let sum = 0;
+        
+        for (let i = 0; i < inputData.length; i++) {
+          sum += inputData[i] * inputData[i];
+        }
+        
+        const rms = Math.sqrt(sum / inputData.length);
+        const computedAmplitude = Math.min(100, Math.max(5, rms * 350));
+        
+        liveProfileRef.current.push(computedAmplitude);
+      };
+
+      sourceNode.connect(processorNode);
+      processorNode.connect(audioContextRef.current.destination);
+
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
       
       mediaRecorder.onstop = async () => {
+        sourceNode.disconnect();
+        processorNode.disconnect();
+        stream.getTracks().forEach(track => track.stop());
+
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
         const arrayBuffer = await audioBlob.arrayBuffer();
-        if (!audioContextRef.current) {
-          audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-        }
         const decodedBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
-        const waveProfile = Array.from({ length: 32 }, () => Math.floor(Math.random() * 70) + 15);
         
+        const finalProfile = [...liveProfileRef.current];
+        if (finalProfile.length === 0) {
+          finalProfile.push(10);
+        }
+
         setSandboxItem({
           id: `clip-${Date.now()}`,
           name: `Voice Sample #${audioItems.length + 1}`,
@@ -306,8 +361,9 @@ export default function App() {
           distortion: 0, 
           volume: 100, 
           startTime: 0, 
-          waveProfile
+          waveProfile: finalProfile
         });
+        setLiveWaveProfile([]);
         setStatus(`Captured to Sandbox Bay (${decodedBuffer.duration.toFixed(1)}s)`);
       };
 
@@ -315,9 +371,16 @@ export default function App() {
       setIsRecording(true);
       setStatus("Tracking microphone stream channel...");
       const startTimeStamp = Date.now();
+      
       recordingTimerRef.current = setInterval(() => {
-        setRecordingSeconds((Date.now() - startTimeStamp) / 1000);
-      }, 30);
+        const delta = (Date.now() - startTimeStamp) / 1000;
+        setRecordingSeconds(delta);
+        
+        if (isGuideModeRef.current) {
+          pausedAtRef.current = delta; 
+        }
+        setLiveWaveProfile([...liveProfileRef.current]);
+      }, 50);
     } catch (err) {
       setStatus("Microphone access blocked.");
       console.error(err);
@@ -382,6 +445,11 @@ export default function App() {
     }
   };
 
+  const toggleGuidePlayheadMode = () => {
+    setIsGuideModeActive(prev => !prev);
+    setStatus(`Guide playback tracking state set to: ${!isGuideModeActive ? 'ENABLED' : 'DISABLED'}`);
+  };
+
   const fireActiveTimelineSources = () => {
     if (!audioContextRef.current) {
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
@@ -433,7 +501,7 @@ export default function App() {
   };
 
   const handleGlobalPlayback = () => {
-    if (audioItems.length === 0) return;
+    if (audioItems.length === 0 || isRecording) return;
     if (sandboxSourceRef.current) sandboxSourceRef.current.stop();
     setIsPlayingSandbox(false);
 
@@ -461,6 +529,7 @@ export default function App() {
   };
 
   const handleGlobalStop = () => {
+    if (isRecording) return;
     stopAllGlobalAudio(false);
     pausedAtRef.current = 0;
     setPlayheadPosition(0);
@@ -587,6 +656,27 @@ export default function App() {
     setDraggingClipId(null);
   };
 
+  const getVolumeColorClass = (amplitude, isSelected) => {
+    if (amplitude > 65) return 'bg-red-500'; 
+    if (amplitude > 15) return isSelected ? 'bg-white' : 'bg-zinc-400'; 
+    return 'bg-zinc-800'; 
+  };
+
+  const renderSpeedSyncedProfile = (item) => {
+    if (!item.waveProfile || item.waveProfile.length === 0) return [];
+    const speedFactor = item.speed || 1.0;
+    
+    const visualWidthBars = Math.max(20, Math.floor((item.duration / speedFactor) * 12));
+    const warpedProfile = [];
+    
+    for (let i = 0; i < visualWidthBars; i++) {
+      const originalIndex = Math.floor(i * speedFactor * (item.waveProfile.length / visualWidthBars));
+      const rawAmplitude = item.waveProfile[originalIndex % item.waveProfile.length] || 5;
+      warpedProfile.push(rawAmplitude);
+    }
+    return warpedProfile;
+  };
+
   const timeMarkers = Array.from({ length: 40 }, (_, i) => i * 2);
 
   return (
@@ -626,9 +716,6 @@ export default function App() {
                 <div className="flex justify-between text-xs">
                   <span className="text-zinc-400">Timeline Offset</span>
                   <span className="text-white font-bold font-mono">{(selectedClip.startTime || 0).toFixed(1)}s</span>
-                </div>
-                <div className="text-[10px] text-zinc-500 bg-zinc-900/50 p-2 border border-zinc-800/60 font-mono">
-                  Select card, then hold <span className="text-zinc-300">←</span> or <span className="text-zinc-300">→</span> key to reposition clip horizontally.
                 </div>
               </div>
 
@@ -759,7 +846,7 @@ export default function App() {
           className="flex-1 overflow-y-auto bg-black p-4 space-y-4 relative overflow-x-auto [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-900 [&::-webkit-scrollbar-thumb]:rounded-full"
         >
           
-          {/* NEW MONOCHROMATIC FLOATING CIRCLE EXPORT BUTTON */}
+          {/* MONOCHROMATIC FLOATING CIRCLE EXPORT BUTTON */}
           <button
             onClick={(e) => { e.stopPropagation(); handleExportMix(); }}
             title="Export Session Audio (.mp3)"
@@ -843,7 +930,7 @@ export default function App() {
                       draggable
                       onDragStart={(e) => handleDragStart(e, item.id, false)}
                       onClick={(e) => { e.stopPropagation(); setSelectedClipId(item.id); setSelectedTrackId(null); }} 
-                      className={`h-full p-3 flex flex-col justify-between border cursor-grab active:cursor-grabbing absolute transition-all duration-75 rounded-none ${
+                      className={`h-full p-3 flex flex-col justify-center border cursor-grab active:cursor-grabbing absolute transition-all duration-75 overflow-hidden rounded-none ${
                         isMuted 
                           ? 'bg-zinc-950 border-zinc-900 text-zinc-700'
                           : isSelected
@@ -852,45 +939,29 @@ export default function App() {
                       }`}
                       style={{ 
                         width: `${(item.duration / (item.speed || 1.0)) * zoomLevel}px`, 
-                        minWidth: '160px',
                         left: `${(item.startTime || 0) * zoomLevel}px` 
                       }}
                     >
-                      <div className="w-full flex items-center justify-between">
-                        <div className="flex flex-col max-w-[50%] leading-tight">
-                          <span className={`font-mono font-bold tracking-tight truncate ${rowHeight < 64 ? 'text-[8.5px]' : 'text-[10px]'}`}>{item.name}</span>
-                          {rowHeight >= 64 && <span className="text-[8px] opacity-40 font-mono">Length: {(item.duration / (item.speed || 1.0)).toFixed(1)}s</span>}
-                        </div>
-                        
-                        <div className={`flex flex-col font-mono text-[8px] shrink-0 text-right gap-[1px] ${rowHeight < 64 ? 'hidden' : 'flex'}`}>
-                          <div className="flex items-center gap-1 justify-end">
-                            {item.distortion > 0 && <span className="px-0.5 bg-white text-black font-bold text-[7px] leading-none select-none">DST</span>}
-                            <span className={isSelected ? 'text-white' : 'text-zinc-400'}>V: {item.volume !== undefined ? item.volume : 100}%</span>
-                          </div>
-                          <div className="text-[7.5px] opacity-50">
-                            <span>S:{(item.speed || 1.0).toFixed(1)}x </span>
-                            <span>P:{(item.pitch || 1.0).toFixed(1)}x</span>
-                          </div>
-                        </div>
-                      </div>
+                      {/* Track Name Label (Upper Left Corner) */}
+                      <span className={`absolute top-2 left-3 font-mono font-bold tracking-tight truncate max-w-[60%] z-25 text-zinc-100 ${rowHeight < 64 ? 'text-[8.5px]' : 'text-[10px]'}`}>
+                        {item.name}
+                      </span>
 
-                      {/* MINIMALIST WHITE/GRAY WAVE PROFILE */}
-                      <div className={`absolute left-28 right-4 gap-[2px] pointer-events-none opacity-20 group-hover:opacity-40 transition-opacity flex items-center justify-center ${rowHeight < 64 ? 'inset-y-1.5 top-1.5' : 'bottom-2 top-6'}`}>
-                        {item.waveProfile?.map((height, idx) => (
+                      {/* Duration Time Stamp Badge (Upper Right Corner) */}
+                      <span className="absolute top-2 right-2 bg-black/60 backdrop-blur-xs border border-zinc-800 px-1 py-0.5 font-mono text-[9px] font-bold text-zinc-300 rounded-xs z-25 shadow-xs">
+                        {(item.duration / (item.speed || 1.0)).toFixed(1)}s
+                      </span>
+
+                      {/* TRUE SPEED-WARPED VISUALIZER AUDIO BLOCK MATRIX */}
+                      <div className="absolute inset-x-3 bottom-2 top-8 flex items-center gap-[1px] pointer-events-none select-none">
+                        {renderSpeedSyncedProfile(item).map((amplitude, idx) => (
                           <div 
                             key={idx} 
-                            className={`w-[2px] h-full ${isSelected ? 'bg-white' : 'bg-zinc-400'} rounded-none`} 
-                            style={{ height: `${height * 0.8}%` }}
+                            className={`flex-1 min-w-[2px] transition-colors ${getVolumeColorClass(amplitude, isSelected)}`} 
+                            style={{ height: `${amplitude}%` }}
                           />
                         ))}
                       </div>
-
-                      {/* CONTEXTUAL KEYBOARD CONTROLS INDICATOR */}
-                      {isSelected && rowHeight >= 64 && (
-                        <div className="text-[7.5px] font-mono opacity-60 uppercase tracking-wider text-zinc-400 select-none animate-pulse">
-                          [ ← ] [ → ] Nudge Position
-                        </div>
-                      )}
                     </div>
                   ) : (
                     <div className="text-[10px] font-mono text-zinc-800 tracking-wider pl-2 select-none">
@@ -916,7 +987,15 @@ export default function App() {
         {/* SANDBOX LAYER CAPTURE BAY */}
         <section className="border-t border-zinc-900 bg-zinc-950 px-6 py-3 z-10 shadow-inner rounded-none relative">
           
-          {/* UPDATED MODULAR STAGING ALERT OVERLAY */}
+          {/* CONTEXTUAL FLOATING KEYBOARD NUDGE CONTROLS INDICATOR */}
+          {selectedClipId && (
+            <div className="absolute right-6 -top-7 border border-zinc-800 bg-zinc-950 px-2 py-1 text-zinc-400 font-mono text-[9px] uppercase tracking-wider flex items-center gap-1.5 shadow-md animate-fade-in rounded-none select-none z-30">
+              <Move className="w-3 h-3 text-zinc-500" />
+              Use <span className="text-zinc-200 font-bold">[ ← ]</span> or <span className="text-zinc-200 font-bold">[ → ]</span> keys to nudge timeline placement
+            </div>
+          )}
+
+          {/* MODULAR STAGING ALERT OVERLAY */}
           {showStagingConflict && (
             <div className="absolute left-6 bottom-20 border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-zinc-300 font-mono text-[10px] tracking-wide flex flex-col gap-2 shadow-2xl z-40 rounded-none w-80 max-w-sm">
               <div className="flex items-center gap-2">
@@ -950,6 +1029,17 @@ export default function App() {
                 <Timer className="w-4 h-4" />
                 <span className="font-mono text-[10px] tracking-tighter">{recordTimer > 0 ? `${recordTimer}s` : '0s'}</span>
               </button>
+
+              {/* TOGGLEABLE GUIDE PLAYHEAD TRACKING CONTROLLER */}
+              <button 
+                onClick={toggleGuidePlayheadMode}
+                disabled={isRecording || countdownActive}
+                title={isGuideModeActive ? "Disable Playhead Recording Guide" : "Enable Playhead Recording Guide"}
+                className={`p-2.5 transition-all border rounded-none flex items-center gap-1.5 ${isGuideModeActive ? 'bg-zinc-100 text-black border-white font-bold' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800'} disabled:opacity-20`}
+              >
+                <Eye className="w-4 h-4" />
+                <span className="font-mono text-[10px] uppercase tracking-tighter hidden md:inline">{isGuideModeActive ? 'Guide ON' : 'Guide OFF'}</span>
+              </button>
             </div>
 
             {/* LIVE TRACK WITH REAL-TIME PLAYHEAD */}
@@ -968,16 +1058,19 @@ export default function App() {
                 </div>
               ) : isRecording ? (
                 <div 
-                  className="h-12 bg-zinc-900 border border-zinc-700 text-white p-2.5 flex items-center justify-between shadow-lg overflow-hidden whitespace-nowrap animate-pulse rounded-none"
-                  style={{ width: `${Math.max(1, recordingSeconds * zoomLevel)}px` }}
+                  className="h-12 bg-zinc-900 border border-zinc-700 text-white p-2 flex items-center justify-start gap-[1px] overflow-hidden rounded-none shadow-inner"
+                  style={{ width: `${Math.max(180, recordingSeconds * zoomLevel)}px` }}
                 >
-                  {recordingSeconds * zoomLevel > 140 && (
-                    <span className="text-[9px] font-mono font-bold tracking-tight text-white flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-white animate-ping" /> Tracking Signal...
-                    </span>
-                  )}
-                  <span className="ml-auto bg-black px-1.5 py-0.5 text-white border border-zinc-800 font-bold font-mono text-[9px] rounded-none">
-                    {recordingSeconds.toFixed(1)}s
+                  {liveWaveProfile.map((amplitude, idx) => (
+                    <div 
+                      key={idx} 
+                      className={`w-[2px] shrink-0 ${amplitude > 65 ? 'bg-red-500' : 'bg-white'}`} 
+                      style={{ height: `${amplitude}%` }}
+                    />
+                  ))}
+                  
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 bg-black px-1.5 py-0.5 text-white border border-zinc-800 font-bold font-mono text-[9px] rounded-none shadow-md z-20">
+                    REC: {recordingSeconds.toFixed(1)}s
                   </span>
                 </div>
               ) : sandboxItem ? (
@@ -991,9 +1084,13 @@ export default function App() {
                     Drag Up to a Row Slot <ArrowUpRight className="w-2.5 h-2.5" />
                   </span>
                   
-                  <div className="flex-1 max-w-[40%] flex items-center justify-center gap-[1.5px] h-4 opacity-20 px-4">
-                    {sandboxItem.waveProfile?.slice(0, 12).map((height, idx) => (
-                      <div key={idx} className="w-[2px] bg-white rounded-none" style={{ height: `${height * 0.6}%` }} />
+                  <div className="absolute inset-x-32 bottom-1.5 top-5 flex items-center gap-[1px] opacity-30 pointer-events-none">
+                    {sandboxItem.waveProfile?.slice(0, 40).map((amplitude, idx) => (
+                      <div 
+                        key={idx} 
+                        className={`flex-1 min-w-[1px] ${amplitude > 65 ? 'bg-red-400' : 'bg-zinc-300'}`} 
+                        style={{ height: `${amplitude}%` }} 
+                      />
                     ))}
                   </div>
 
@@ -1034,7 +1131,7 @@ export default function App() {
         {/* CONTROLS MASTER FOOTER BAR */}
         <footer className="h-20 border-t border-zinc-900 bg-black px-8 flex items-center justify-between backdrop-blur-md z-20 rounded-none">
           <div className="flex items-center gap-4">
-            <div className="flex items-center bg-zinc-955 border border-zinc-900 px-3 py-1 rounded-none gap-2 shadow-inner">
+            <div className="flex items-center bg-zinc-950 border border-zinc-900 px-3 py-1 rounded-none gap-2 shadow-inner">
               <button 
                 onClick={handleGlobalPlayback} 
                 disabled={audioItems.length === 0 || isRecording || countdownActive} 
@@ -1047,7 +1144,7 @@ export default function App() {
               <button 
                 onClick={handleGlobalStop} 
                 disabled={audioItems.length === 0 || isRecording || countdownActive} 
-                className="flex items-center gap-2 px-4 py-1.5 bg-zinc-950 hover:bg-zinc-800 border border-zinc-900 text-zinc-400 font-bold text-xs tracking-wide uppercase transition-all disabled:opacity-20 rounded-none"
+                className="flex items-center gap-2 px-4 py-1.5 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 font-bold text-xs tracking-wide uppercase transition-all disabled:opacity-20 rounded-none"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>Stop / Reset</span>
@@ -1083,7 +1180,7 @@ export default function App() {
               />
             </div>
 
-            {/* MASTER DECK SYSTEM SPEED */}
+            {/* GLOBAL PLAYBACK SPEED */}
             <div className="space-y-1 w-36 hidden sm:block">
               <div className="flex justify-between text-[10px] font-bold text-zinc-500">
                 <span>GLOBAL SPEED</span>
@@ -1112,6 +1209,13 @@ export default function App() {
         }
         .animate-shrink-timer {
           animation: shrinkTimer 5s linear forwards;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+          animation: fadeIn 0.15s ease-out forwards;
         }
       `}} />
 
