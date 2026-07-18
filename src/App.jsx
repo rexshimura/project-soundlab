@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Mic, Square, Play, Pause, RotateCcw, Volume2, VolumeX, 
-  Activity, Trash2, Sliders, ZoomIn, Timer, Plus, Layout, AlertTriangle, Download, Move, ArrowUpRight, Eye
+  Trash2, Sliders, ZoomIn, Timer, Plus, Layout, AlertTriangle, Download, Move, ArrowUpRight, Eye
 } from 'lucide-react';
 
 export default function App() {
@@ -170,7 +170,6 @@ export default function App() {
   const updatePlayhead = () => {
     if (!audioContextRef.current || (!isPlayingGlobal && !mediaRecorderRef.current)) return;
 
-    // Direct binding map to lock tracking positions to mic clock increments only when guide mode is enabled
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       if (isGuideModeRef.current) {
         setPlayheadPosition(pausedAtRef.current * zoomLevel);
@@ -299,7 +298,6 @@ export default function App() {
     liveProfileRef.current = [];
     audioChunksRef.current = [];
 
-    // Reset playhead zero point allocations context mapping strictly inside guide sequence limits
     if (isGuideModeActive) {
       pausedAtRef.current = 0;
       setPlayheadPosition(0);
@@ -686,12 +684,13 @@ export default function App() {
       <aside className="w-80 border-r border-zinc-900 bg-zinc-950 p-6 flex flex-col justify-between shadow-xl z-25 rounded-none">
         <div className="space-y-6">
           <div className="flex items-center gap-2">
-            <div className="p-2 bg-zinc-900 border border-zinc-800 rounded-none">
-              <Activity className="w-5 h-5 text-zinc-400" />
+            {/* LOGO IMAGE REPLACEMENT SECTION */}
+            <div className="p-2 bg-zinc-900 border border-zinc-800 rounded-none w-9 h-9 flex items-center justify-center overflow-hidden">
+              <img src="/logo.png" alt="Logo" className="w-5 h-5 object-contain" />
             </div>
             <div>
               <h1 className="text-sm font-bold tracking-tight text-zinc-100">SoundLab Studio</h1>
-              <p className="text-[10px] text-zinc-500 font-mono">Precision Tracking Deck</p>
+              <p className="text-[10px] text-zinc-500 font-mono">v1.0.2</p>
             </div>
           </div>
 
@@ -1144,7 +1143,7 @@ export default function App() {
               <button 
                 onClick={handleGlobalStop} 
                 disabled={audioItems.length === 0 || isRecording || countdownActive} 
-                className="flex items-center gap-2 px-4 py-1.5 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 font-bold text-xs tracking-wide uppercase transition-all disabled:opacity-20 rounded-none"
+                className="flex items-center gap-2 px-4 py-1.5 bg-zinc-950 hover:bg-zinc-800 border border-zinc-900 text-zinc-400 font-bold text-xs tracking-wide uppercase transition-all disabled:opacity-20 rounded-none"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>Stop / Reset</span>
